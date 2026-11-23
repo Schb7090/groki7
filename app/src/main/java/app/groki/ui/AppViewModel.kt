@@ -3,6 +3,7 @@ package app.groki.ui
 import android.app.Application
 import android.app.PendingIntent
 import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.groki.data.GoogleAuth
@@ -11,6 +12,7 @@ import app.groki.data.Repository
 import app.groki.model.ActionItem
 import app.groki.model.Decision
 import app.groki.model.Snapshot
+import app.groki.model.SourceKind
 import app.groki.model.Status
 import app.groki.sync.Notifier
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,12 +39,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val undo = MutableStateFlow<UndoEvent?>(null)
 
     val state: StateFlow<UiState> = combine(repo.snapshot, transient) { snap, t ->
-        t.copy(snapshot = snap, needsSignIn = t.needsSignIn && snap.lastSyncMs == 0L)
+        t.copy(snapshot = snap, needsSignIn = snap.lastSyncMs == 0L)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, UiState(snapshot = repo.snapshot.value))
 
     init {
-        if (repo.snapshot.value.lastSyncMs == 0L) transient.value = transient.value.copy(needsSignIn = true)
-        else refresh(silent = true)
+        if (repo.snapshot.value.lastSyncMs != 0L) refresh(silent = true)
     }
 
     fun refresh(silent: Boolean = false) {
@@ -111,7 +112,49 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun runUndo(e: UndoEvent) = viewModelScope.launch { e.undo() }
 
+    /** Drive-mappa a rendszer fájlválasztójából; az olvasási jogot tartósan megtartjuk. */
+    fun useFolder(uri: Uri) = viewModelScope.launch {
+        runCatching {
+            getApplication<Application>().contentResolver
+                .takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        repo.setSource(SourceKind.FOLDER, treeUri = uri.toString())
+        refresh()
+    }
+
+    fun useBridge(url: String) = viewModelScope.launch {
+        val clean = url.trim()
+        if (!clean.startsWith("https://script.google.com/")) {
+            transient.value = transient.value.copy(
+                error = "Ez nem Apps Script webapp URL. A https://script.google.com/macros/s/…/exec formát várom.")
+            return@launch
+        }
+        repo.setSource(SourceKind.BRIDGE, bridgeUrl = clean)
+        refresh()
+    }
+
+    fun useGoogle() = viewModelScope.launch {
+        repo.setSource(SourceKind.GOOGLE)
+        refresh()
+    }
+
+    /** Vissza a forrásválasztóhoz; a teendők állapota megmarad. */
+    fun changeSource() = viewModelScope.launch {
+        releaseFolder()
+        repo.setSource(null)
+        transient.value = UiState(needsSignIn = true)
+    }
+
+    private fun releaseFolder() {
+        val tree = repo.snapshot.value.treeUri ?: return
+        runCatching {
+            getApplication<Application>().contentResolver
+                .releasePersistableUriPermission(Uri.parse(tree), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
     fun signOut() = viewModelScope.launch {
+        releaseFolder()
         repo.signOut()
         transient.value = UiState(needsSignIn = true)
     }

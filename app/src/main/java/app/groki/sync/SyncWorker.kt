@@ -17,6 +17,8 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
     override suspend fun doWork(): Result {
         Graph.init(applicationContext)
         val repo = Graph.repo
+        // amíg nincs forrás kiválasztva, nincs mit szinkronizálni
+        if (repo.snapshot.value.source == null && repo.snapshot.value.lastSyncMs == 0L) return Result.success()
         return when (val r = repo.sync()) {
             is Repository.SyncResult.Ok -> {
                 Notifier.notifyImportant(applicationContext, repo)

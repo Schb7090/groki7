@@ -1,5 +1,14 @@
 package app.groki.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -250,6 +259,7 @@ fun PromosScreen(snap: Snapshot, now: Long, actions: ItemActions) {
 // ---------------------------------------------------------------- Levelek
 @Composable
 fun MailScreen(snap: Snapshot) {
+    val folderMode = snap.source == app.groki.model.SourceKind.FOLDER
     var auto by rememberSaveable { mutableStateOf<String?>(null) }
     val uri = LocalUriHandler.current
     val groups = snap.mails.groupBy { it.automation }.toList().sortedByDescending { it.second.size }
@@ -265,7 +275,9 @@ fun MailScreen(snap: Snapshot) {
             }
         }
         if (list.isEmpty()) item {
-            EmptyState(Icons.Filled.MarkEmailUnread, "Nincs Grok-levél", "Az elmúlt 14 nap noreply@x.ai értesítői itt jelennek meg.")
+            if (folderMode) EmptyState(Icons.Filled.MarkEmailUnread, "Mappa módban nincs levél",
+                "A Grok-levelek megjelenítéséhez válts az Apps Script hídra (⋮ → Forrás módosítása).")
+            else EmptyState(Icons.Filled.MarkEmailUnread, "Nincs Grok-levél", "Az elmúlt 14 nap noreply@x.ai értesítői itt jelennek meg.")
         }
         items(list, key = { it.id }) { m ->
             ListItem(
@@ -288,36 +300,117 @@ fun MailScreen(snap: Snapshot) {
     }
 }
 
-// ---------------------------------------------------------------- Bejelentkezés
+// ---------------------------------------------------------------- Bevezetés / forrásválasztás
 @Composable
-fun SignInScreen(busy: Boolean, error: String?, onSignIn: () -> Unit) {
+fun OnboardingScreen(
+    busy: Boolean,
+    error: String?,
+    onFolder: (Uri) -> Unit,
+    onBridge: (String) -> Unit,
+    onGoogle: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    val clip = LocalClipboardManager.current
+    val uri = LocalUriHandler.current
+    var bridgeOpen by rememberSaveable { mutableStateOf(false) }
+    var url by rememberSaveable { mutableStateOf("") }
+    var copied by rememberSaveable { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(onFolder) }
+
     Column(
-        Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(Icons.Filled.SmartToy, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(24.dp))
+        Icon(Icons.Filled.SmartToy, null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(12.dp))
         Text("Groki", style = MaterialTheme.typography.displaySmall)
         Spacer(Modifier.height(8.dp))
         Text(
-            "A Grok automatizmusaid (Task Extractor, Promó-figyelő, Pénzvadász) eredményei egy helyen: " +
-                "teendők, lejáró ajánlatok és biztonsági riasztások.",
+            "A Grok automatizmusaid eredményei egy helyen: teendők, lejáró ajánlatok, biztonsági riasztások.",
             style = MaterialTheme.typography.bodyLarge,
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(24.dp))
+
+        // 1. ajánlott: mappa
+        Card(
+            shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Drive-mappa kiválasztása", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Nincs beállítás. A megnyíló ablakban bal felül a ☰ menüben válaszd a Drive-ot, " +
+                        "majd azt a mappát, ahová a Grok az Action Items összefoglalókat menti, és koppints a " +
+                        "„Mappa használata” gombra. A levelek fül ebben a módban üres marad.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(10.dp))
+                Button(onClick = { picker.launch(null) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.Folder, null); Spacer(Modifier.width(8.dp))
+                    Text(if (busy) "Beolvasás…" else "Mappa kiválasztása")
+                }
+            }
+        }
+
+        if (error != null) {
+            Spacer(Modifier.height(12.dp))
+            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        }
+
+        // 2. tartalék: Apps Script híd
+        Spacer(Modifier.height(12.dp))
+        Card(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().animateContentSize(),
+            onClick = { bridgeOpen = !bridgeOpen }) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Apps Script híd (levelekkel együtt)", style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f))
+                    Icon(if (bridgeOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null)
+                }
+                Text("Ha a mappa nem működik, vagy a Grok-leveleket is látni szeretnéd. Kb. 3 perc, Cloud Console nélkül.",
+                    style = MaterialTheme.typography.bodySmall)
+                if (bridgeOpen) {
+                    Spacer(Modifier.height(10.dp))
+                    listOf(
+                        "1. Másold ki a szkriptet az alábbi gombbal.",
+                        "2. script.google.com → Új projekt → töröld a mintakódot, illeszd be → Mentés.",
+                        "3. Telepítés → Új telepítés → fogaskerék: Webalkalmazás → Futtatás mint: Én, Hozzáférés: Bárki → Telepítés.",
+                        "4. Engedélyezd (Speciális → Ugrás a projektre), majd másold ki a /exec végű URL-t ide.",
+                    ).forEach { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 2.dp)) }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = {
+                            val code = ctx.assets.open("bridge.gs").bufferedReader().use { it.readText() }
+                            clip.setText(AnnotatedString(code)); copied = true
+                        }) { Text(if (copied) "Kimásolva ✓" else "Szkript másolása") }
+                        OutlinedButton(onClick = { runCatching { uri.openUri("https://script.google.com/home/projects/create") } }) {
+                            Text("script.google.com")
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = url, onValueChange = { url = it }, singleLine = true,
+                        label = { Text("Webapp URL (…/exec)") }, modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = { onBridge(url) }, enabled = !busy && url.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                        Text("Csatlakozás")
+                    }
+                }
+            }
+        }
+
+        // 3. haladó
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onGoogle, enabled = !busy) {
+            Text("Haladó: közvetlen Google-bejelentkezés (saját Cloud OAuth-kliens kell)")
+        }
+        Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Lock, null, Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
-            Text("Csak olvasási hozzáférés (Gmail, Drive). Az adatok a telefonon maradnak.",
-                style = MaterialTheme.typography.bodySmall)
-        }
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onSignIn, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-            Text(if (busy) "Kapcsolódás…" else "Bejelentkezés Google-fiókkal")
-        }
-        if (error != null) {
-            Spacer(Modifier.height(12.dp))
-            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Text("Csak olvasás. Az adatok a telefonon maradnak.", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

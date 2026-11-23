@@ -33,9 +33,9 @@ Bármely tételre koppintva alsó lap nyílik: következő lépés kiemelve, ré
 
 ```
 Grok automatizmusok ──► Gmail (noreply@x.ai)  ──┐
-                    └─► Drive Action_Items_*.md ─┤  csak olvasás (OAuth: gmail.readonly, drive.readonly)
+                    └─► Drive Action_Items_*.md ─┤  csak olvasás
                                                  ▼
-                       GoogleApi (REST, HttpURLConnection)
+        FolderSource (SAF, Drive app) · BridgeSource (Apps Script) · GoogleApi (OAuth)
                                                  ▼
                        SummaryParser / MailParser ──► Snapshot (JSON, filesDir)
                                                  ▼                     ▲
@@ -43,20 +43,32 @@ Grok automatizmusok ──► Gmail (noreply@x.ai)  ──┐
 ```
 
 - **Kotlin + Jetpack Compose + Material 3.** Android 12+ eszközön a háttérkép színeit veszi át (dynamic color). Sötét mód támogatott. minSdk 26, targetSdk 35.
-- **Hitelesítés:** Google Identity `AuthorizationClient`. Nincs saját szerver, és az app nem tárol tokent.
+- **Hozzáférés:** alapból a Storage Access Framework (nincs OAuth), tartaléknak Apps Script híd, haladó módban Google Identity `AuthorizationClient`. Nincs saját szerver.
 - **Helyi állapot:** a kész, halasztott, elvetett jelöléseket és a promódöntéseket csak a telefon tárolja. A Drive-ra és a Gmailbe az app semmit nem ír.
 - **Parser:** a Drive markdown-exportot és a sima szöveges exportot is kezeli. A „High/Medium/Low Priority” szakaszokból és az `Owner / Due / Details / Next step` mezőkből dolgozik, és a kategóriát kulcsszavak alapján állapítja meg. A tesztek az `app/src/test` alatt vannak, szintetikus mintával.
 
-## Beállítás (egyszer kell, a saját Google-fiókoddal)
+## Adatforrás – három lehetőség
 
-Az app a Google API-khoz csak egy általad regisztrált OAuth-klienssel fér hozzá.
+Az app indításkor megkérdezi, honnan olvasson. A teendők állapota (kész, halasztás, döntés) forrásváltáskor is megmarad (⋮ → Forrás módosítása).
 
-1. A [Google Cloud Console](https://console.cloud.google.com/)-ban hozz létre egy projektet, majd az *APIs & Services → Library* oldalon engedélyezd a **Gmail API**-t és a **Google Drive API**-t.
-2. Az *OAuth consent screen* oldalon a típus legyen **External**, a státusz **Testing**. A *Test users* közé add hozzá a saját Gmail-címedet. A `gmail.readonly` korlátozott (restricted) scope, ezért nyilvános kiadáshoz Google-ellenőrzés kellene. Saját használatra a Testing mód elég.
-3. A *Credentials → Create credentials → OAuth client ID* lépésben válaszd az **Android** típust:
-   - Package name: `app.groki`
-   - SHA-1: az APK aláíró kulcsáé. Ha a csatolt debug APK-t telepíted, ez: `E9:5E:9A:4B:45:1F:1C:93:1D:98:3A:2D:0A:46:D5:DB:89:51:77:C3`. Saját buildnél: `keytool -list -v -keystore ~/.android/debug.keystore -storepass android`.
-4. Telepítsd az appot, koppints a „Bejelentkezés Google-fiókkal” gombra, és fogadd el a csak olvasási hozzáférést.
+### 1. Drive-mappa kiválasztása (ajánlott, nincs beállítás)
+A rendszer fájlválasztójában (☰ → Drive) azt a mappát választod ki, ahová a Grok az Action Items összefoglalókat menti. Az app a telefonon lévő Google Drive appon keresztül olvas (Storage Access Framework), ezért nem kell OAuth-kliens.
+- A Google Docs fájlokat a Drive app csak konvertálva adja ki. Az app ezeket a formátumokat kezeli: markdown, sima szöveg, HTML, docx.
+- A Grok minden futáshoz új almappát hoz létre. Az app a 6 legutóbb módosított almappába néz bele, legfeljebb 3 szint mélyen.
+- Korlát: ebben a módban a Grok-levelek nem érhetők el. Előre nem ellenőrzött az is, hogy a Drive app minden eszközön engedi-e a mappa kiválasztását. Ha nem, használd a 2. pontot.
+
+### 2. Apps Script híd (levelekkel együtt, Cloud Console nélkül)
+Egy kis webapp, amely a saját Google-fiókodban fut, és JSON-ként adja vissza a legfrissebb összefoglalót és a Grok-leveleket. A kódja: [`app/src/main/assets/bridge.gs`](app/src/main/assets/bridge.gs). Az app gombnyomásra vágólapra másolja.
+1. Nyisd meg: script.google.com → Új projekt, majd illeszd be a kódot, és ments.
+2. Telepítés → Új telepítés → Webalkalmazás. Futtatás mint: **Én**, hozzáférés: **Bárki**.
+3. Engedélyezd. A „Google nem ellenőrizte” ablakban: Speciális → Ugrás a projektre.
+4. A `/exec` végű URL-t másold be az appba. Az URL titkos kulcsként működik, ne oszd meg.
+
+### 3. Közvetlen Google-bejelentkezés (haladó)
+Gmail és Drive API közvetlenül. Ehhez saját OAuth-kliens kell a Google Cloud Console-ban:
+1. Engedélyezd a **Gmail API**-t és a **Google Drive API**-t.
+2. A beleegyezési képernyő típusa legyen External, a státusza Testing, és vedd fel magad tesztfelhasználónak.
+3. Hozz létre egy **Android** OAuth-klienst. Package name: `app.groki`. SHA-1: az APK aláíró kulcsáé; a kiadott debug APK-é `E9:5E:9A:4B:45:1F:1C:93:1D:98:3A:2D:0A:46:D5:DB:89:51:77:C3`.
 
 ## Build
 

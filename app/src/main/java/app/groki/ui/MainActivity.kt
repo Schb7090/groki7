@@ -123,7 +123,12 @@ fun GrokiApp(vm: AppViewModel, startTab: Int) {
 
     if (ui.snapshot.lastSyncMs == 0L) {
         Scaffold { pad ->
-            Box(Modifier.padding(pad)) { SignInScreen(ui.syncing, ui.error) { vm.refresh() } }
+            Box(Modifier.padding(pad)) {
+                OnboardingScreen(
+                    busy = ui.syncing, error = ui.error,
+                    onFolder = vm::useFolder, onBridge = vm::useBridge, onGoogle = vm::useGoogle,
+                )
+            }
         }
         return
     }
@@ -160,7 +165,9 @@ fun GrokiApp(vm: AppViewModel, startTab: Int) {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Menü") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(text = { Text("Frissítés most") }, onClick = { menu = false; vm.refresh() })
-                            DropdownMenuItem(text = { Text("Kijelentkezés és helyi adatok törlése") },
+                            DropdownMenuItem(text = { Text("Forrás módosítása") },
+                                onClick = { menu = false; vm.changeSource() })
+                            DropdownMenuItem(text = { Text("Leválasztás és helyi adatok törlése") },
                                 onClick = { menu = false; vm.signOut() })
                         }
                     },

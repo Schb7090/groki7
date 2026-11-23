@@ -64,7 +64,7 @@ object SummaryParser {
                     exec.append(clean(line))
                 }
                 // csak a felsorolás számít; a záró mondatok ("End of summary.") nem lépések
-                Section.NEXT -> bullet.find(line)?.let { nextSteps += clean(it.groupValues[1]) }
+                Section.NEXT -> (bullet.find(line) ?: numberedTitle.find(line))?.let { nextSteps += clean(it.groupValues[1]) }
                 Section.HIGH, Section.MEDIUM, Section.LOW -> {
                     val f = fieldLine.find(line)
                     val t = if (f == null) (boldBulletTitle.find(line) ?: numberedTitle.find(line)) else null

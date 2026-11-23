@@ -60,8 +60,15 @@ data class ItemState(
 @Serializable
 enum class Decision { WANT, SKIP }
 
+/** Honnan jön az adat. */
+@Serializable
+enum class SourceKind { FOLDER, BRIDGE, GOOGLE }
+
 @Serializable
 data class Snapshot(
+    val source: SourceKind? = null,
+    val treeUri: String? = null,
+    val bridgeUrl: String? = null,
     val summary: Summary? = null,
     val mails: List<GrokMail> = emptyList(),
     val states: Map<String, ItemState> = emptyMap(),
